@@ -4,11 +4,8 @@
 //
 
 import SwiftUI
-import FoundationModels
 
 struct RagView: View {
-    private let model = SystemLanguageModel.default
-
     @State private var engine = RagEngine()
     @FocusState private var isQuestionFocused: Bool
 
@@ -19,30 +16,11 @@ struct RagView: View {
     var body: some View {
         NavigationStack {
             Group {
-                switch model.availability {
-                case .available:
-                    mainContent
-                case .unavailable(.appleIntelligenceNotEnabled):
-                    unavailableView(
-                        title: "Apple Intelligence desativado",
-                        message: "Ative o Apple Intelligence em Ajustes para usar o RAG com o modelo local."
-                    )
-                case .unavailable(.deviceNotEligible):
-                    unavailableView(
-                        title: "Dispositivo não suportado",
-                        message: "Este dispositivo não é compatível com Apple Intelligence."
-                    )
-                case .unavailable(.modelNotReady):
-                    unavailableView(
-                        title: "Modelo não pronto",
-                        message: "O modelo ainda está sendo preparado. Tente novamente em instantes."
-                    )
-                case .unavailable:
-                    unavailableView(
-                        title: "Modelo indisponível",
-                        message: "O Foundation Model não está disponível no momento."
-                    )
-                }
+                #if targetEnvironment(simulator)
+                simulatorUnavailableView
+                #else
+                mainContent
+                #endif
             }
             .navigationTitle("RAG")
             .toolbar {
@@ -72,6 +50,23 @@ struct RagView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
+        case .loadingModel(let progress):
+            VStack(spacing: 16) {
+                ProgressView(value: progress)
+                    .progressViewStyle(.linear)
+                    .frame(maxWidth: 280)
+                Text("Baixando modelo Qwen2.5-3B…")
+                    .font(.headline)
+                Text("\(Int(progress * 100))%")
+                    .foregroundStyle(.secondary)
+                Text("Na primeira execução, o download pode levar alguns minutos.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
         case .ready(let passageCount, let mode):
             questionForm(passageCount: passageCount, mode: mode)
 
@@ -87,7 +82,7 @@ struct RagView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Tentar novamente") {
-                        Task { await engine.indexDocuments() }
+                        Task { await engine.retrySetup() }
                     }
                 }
             }
@@ -104,6 +99,7 @@ struct RagView: View {
                 Section("Índice") {
                     LabeledContent("Passagens indexadas", value: "\(passageCount)")
                     LabeledContent("Modo de busca", value: mode.rawValue)
+                    LabeledContent("Modelo de geração", value: "Qwen2.5-3B (MLX)")
                 }
             }
 
@@ -160,8 +156,12 @@ struct RagView: View {
         .scrollDismissesKeyboard(.immediately)
     }
 
-    private func unavailableView(title: String, message: String) -> some View {
-        ContentUnavailableView(title, systemImage: "apple.intelligence", description: Text(message))
+    private var simulatorUnavailableView: some View {
+        ContentUnavailableView(
+            "Simulador não suportado",
+            systemImage: "iphone",
+            description: Text("O MLX requer um iPhone físico com GPU Metal. Conecte um dispositivo e execute o app nele para usar o RAG com o modelo Qwen local.")
+        )
     }
 
     private func dismissKeyboard() {

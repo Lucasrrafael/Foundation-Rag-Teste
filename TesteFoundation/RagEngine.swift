@@ -4,7 +4,6 @@
 //
 
 import Foundation
-import FoundationModels
 import NaturalLanguage
 import PDFKit
 
@@ -35,6 +34,7 @@ enum RagRetrievalMode: String, Sendable {
 enum RagEngineState: Equatable, Sendable {
     case idle
     case indexing
+    case loadingModel(progress: Double)
     case ready(passageCount: Int, mode: RagRetrievalMode)
     case answering
     case error(String)
@@ -61,6 +61,22 @@ final class RagEngine {
 
     private let chunkSize = 750
     private let topK = 4
+    private let qwenGenerator = QwenGenerator.shared
+
+    private static let systemPrompt = """
+    Você é um assistente educativo de saúde e prevenção. O contexto fornecido vem de \
+    cartilhas oficiais de caráter educativo, informativo e de prevenção, produzidas por \
+    órgãos públicos e instituições de ensino para conscientização e proteção da população.
+    O objetivo é estritamente educacional e preventivo, ajudando pessoas a se informarem, \
+    se protegerem e buscarem ajuda.
+
+    Responda às perguntas usando apenas o contexto fornecido pelas cartilhas.
+    Responda em português, de forma clara, objetiva, respeitosa e apropriada, mantendo um \
+    tom informativo e profissional de saúde pública.
+    Se a resposta não estiver no contexto, diga explicitamente que não encontrou essa \
+    informação nas cartilhas.
+    Não invente informações.
+    """
 
     private(set) var state: RagEngineState = .idle
     private var indexedPassages: [IndexedPassage] = []
@@ -97,10 +113,26 @@ final class RagEngine {
                 return IndexedPassage(passage: passage, vector: vector)
             }
 
-            state = .ready(passageCount: indexedPassages.count, mode: retrievalMode)
+            try await loadModel()
         } catch {
             state = .error(error.localizedDescription)
         }
+    }
+
+    private func loadModel() async throws {
+        state = .loadingModel(progress: 0)
+
+        try await qwenGenerator.loadModelIfNeeded { [weak self] progress in
+            Task { @MainActor in
+                self?.state = .loadingModel(progress: progress)
+            }
+        }
+
+        state = .ready(passageCount: indexedPassages.count, mode: retrievalMode)
+    }
+
+    func retrySetup() async {
+        await indexDocuments()
     }
 
     func answer(question: String) async -> RagAnswer? {
@@ -114,28 +146,14 @@ final class RagEngine {
         let sources = topK(for: trimmedQuestion)
         let prompt = buildPrompt(question: trimmedQuestion, sources: sources)
 
-        let session = LanguageModelSession(
-            instructions: """
-            Você é um assistente educativo de saúde e prevenção. O contexto fornecido vem de \
-            cartilhas oficiais de caráter educativo, informativo e de prevenção, produzidas por \
-            órgãos públicos e instituições de ensino para conscientização e proteção da população.
-            O objetivo é estritamente educacional e preventivo, ajudando pessoas a se informarem, \
-            se protegerem e buscarem ajuda.
-
-            Responda às perguntas usando apenas o contexto fornecido pelas cartilhas.
-            Responda em português, de forma clara, objetiva, respeitosa e apropriada, mantendo um \
-            tom informativo e profissional de saúde pública.
-            Se a resposta não estiver no contexto, diga explicitamente que não encontrou essa \
-            informação nas cartilhas.
-            Não invente informações.
-            """
-        )
-
         do {
-            let result = try await session.respond(to: prompt)
+            let response = try await qwenGenerator.generate(
+                systemPrompt: Self.systemPrompt,
+                userPrompt: prompt
+            )
             state = .ready(passageCount: indexedPassages.count, mode: retrievalMode)
             return RagAnswer(
-                response: result.content,
+                response: response,
                 sources: sources,
                 retrievalMode: retrievalMode
             )
