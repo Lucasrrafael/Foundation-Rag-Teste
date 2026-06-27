@@ -1,0 +1,48 @@
+---
+description: Keep Xcode project.pbxproj in sync to avoid build and IDE issues
+alwaysApply: true
+---
+
+# Xcode Project Sync (project.pbxproj)
+
+Whenever you add, remove, rename, or move files or dependencies in this iOS project, verify that Xcode can still build. Update `TesteFoundation.xcodeproj/project.pbxproj` when the change is not handled automatically.
+
+## When pbxproj MUST be updated
+
+Always edit `project.pbxproj` for:
+
+- Swift Package Manager dependencies (`XCRemoteSwiftPackageReference`, `XCSwiftPackageProductDependency`)
+- New targets, schemes, or test bundles
+- Linked frameworks and libraries (System or third-party)
+- Build settings changes (deployment target, capabilities, Info.plist keys, entitlements)
+- Copy Bundle Resources for files outside the synced folder
+- Build phases (Run Script, Compile Sources overrides, etc.)
+- Renaming or moving the app target or product
+
+## Auto-synced folder (this project)
+
+This project uses `PBXFileSystemSynchronizedRootGroup` for the `TesteFoundation/` folder. Files created **inside** `TesteFoundation/` are picked up automatically — no manual `PBXBuildFile` entry is needed for typical `.swift` sources and assets there.
+
+Still verify after changes:
+
+1. New files live under `TesteFoundation/`, not the repo root
+2. Renames/deletes are reflected (stale references cause "Build input file cannot be found")
+3. Xcode opens the project without missing-file warnings
+
+## Workflow checklist
+
+After any structural change:
+
+1. Read `TesteFoundation.xcodeproj/project.pbxproj` before and after editing
+2. Keep existing UUID/style conventions; do not rewrite the whole file
+3. Never commit `xcuserdata/` — only shared project files
+4. Prefer `xcodebuild -scheme TesteFoundation -destination 'platform=iOS Simulator,name=iPhone 16' build` to confirm the project still compiles
+
+## Common mistakes to avoid
+
+- Creating Swift files outside `TesteFoundation/` without adding them to the project
+- Adding SPM packages in code but not in `packageProductDependencies`
+- Forgetting to link a framework after importing it
+- Editing `project.pbxproj` with duplicate UUIDs or broken references
+
+If unsure whether a change needs a pbxproj edit, update it — an out-of-sync project breaks Xcode builds and previews.

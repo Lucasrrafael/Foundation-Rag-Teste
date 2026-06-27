@@ -25,7 +25,17 @@ struct TesteFoundationApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            TabView {
+                ContentView()
+                    .tabItem {
+                        Label("Início", systemImage: "list.bullet")
+                    }
+
+                RagView()
+                    .tabItem {
+                        Label("RAG", systemImage: "doc.text.magnifyingglass")
+                    }
+            }
         }
         .modelContainer(sharedModelContainer)
     }
